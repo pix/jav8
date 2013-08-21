@@ -5,13 +5,10 @@
 #include <vector>
 #include <string>
 
-#ifdef __APPLE__
-#include <pthread.h>
-#endif
-
 #include <jni.h>
 
 #include <v8.h>
+#include <platform.h>
 
 #include "Utils.h"
 
@@ -165,34 +162,13 @@ protected:
     v8::HandleScope handle_scope;
     v8::TryCatch try_catch;
 
-#ifdef __APPLE__
-    static pthread_key_t s_object_template_key = NULL;
-
-    if (!s_object_template_key) {
-        pthread_key_create(&s_object_template_key, NULL);
+    static v8::internal::Thread::LocalStorageKey key = v8::internal::Thread::CreateThreadLocalKey();
+    if (!v8::internal::Thread::HasThreadLocal(key)) {
+        v8::internal::Thread::SetThreadLocal(key, reinterpret_cast<void*>(new v8::Persistent<v8::ObjectTemplate>(v8::Isolate::GetCurrent(), CreateObjectTemplate())));
     }
+    v8::Persistent<v8::ObjectTemplate>* s_template = reinterpret_cast<v8::Persistent<v8::ObjectTemplate>* >(v8::internal::Thread::GetThreadLocal(key));
 
-    template_t *ptr_s_template = (template_t *)pthread_getspecific(s_object_template_key);
-    template_t s_template;
-
-    if (!ptr_s_template) {
-        s_template.Reset(v8::Isolate::GetCurrent(), CreateObjectTemplate());
-        pthread_setspecific(s_object_template_key, ptr_s_template);
-    } else {
-        s_template.Reset(v8::Isolate::GetCurrent(), * (template_t *) ptr_s_template);
-    }
-#else
-#ifdef _MSC_VER
-    // BUG: Multithreaded usage is (probably) broken on Windows
-    static v8::Persistent<v8::ObjectTemplate> s_template(v8::Isolate::GetCurrent(), CreateObjectTemplate());
-#else
-	static __thread v8::ObjectTemplate *s_template = NULL;
-
-	if (!s_template) s_template.Reset(v8::Isolate::GetCurrent(), CreateObjectTemplate());
-#endif
-#endif
-
-    v8::Handle<v8::ObjectTemplate> l_template = v8::Local<v8::ObjectTemplate>::New(v8::Isolate::GetCurrent(), s_template);
+    v8::Handle<v8::ObjectTemplate> l_template = v8::Local<v8::ObjectTemplate>::New(v8::Isolate::GetCurrent(), *s_template);
     v8::Handle<v8::Object> instance = l_template->NewInstance();
 
     ObjectTracer<T>::Trace(instance, obj);
